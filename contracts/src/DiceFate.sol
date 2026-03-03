@@ -82,7 +82,7 @@ contract DiceFate is VRFConsumerBaseV2 {
     /**
      * @notice Calculate payout multiplier based on risk (target number)
      * Higher risk (lower target) = higher multiplier
-     * Formula: multiplier = 100 / targetNumber
+     * Formula: multiplier = 100 / (targetNumber - 1)
      * @param targetNumber The target number (2-100)
      * @return Payout multiplier in basis points
      */
@@ -90,10 +90,12 @@ contract DiceFate is VRFConsumerBaseV2 {
         uint8 targetNumber
     ) public pure returns (uint256) {
         require(targetNumber >= 2 && targetNumber <= 100, "Invalid target");
-        // multiplier = 100 / targetNumber (in basis points)
-        // e.g., target 50 = 100/50 = 2 = 20000 basis points = 2x
-        // e.g., target 10 = 100/10 = 10 = 100000 basis points = 10x
-        return (100 * BASIS_POINTS) / targetNumber;
+        // multiplier = 100 / (targetNumber - 1) (in basis points)
+        // Accounts for actual win probability: (targetNumber - 1) / 100
+        // e.g., target 50: 100/49 ≈ 2.04 = 20408 basis points ≈ 2.04x
+        // e.g., target 10: 100/9 ≈ 11.11 = 111111 basis points ≈ 11.11x
+        // e.g., target 99: 100/98 ≈ 1.02 = 10204 basis points ≈ 1.02x
+        return (100 * BASIS_POINTS) / (targetNumber - 1);
     }
 
     /**

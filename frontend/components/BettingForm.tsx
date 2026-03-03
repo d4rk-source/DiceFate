@@ -51,13 +51,15 @@ export default function BettingForm({
 
   const probabilityPercentage = Math.round((targetNumber / 100) * 100);
 
-  // Variable payout calculation: multiplier = 100 / targetNumber
-  const payoutMultiplier = (100 / targetNumber) * 0.95; // Apply 5% house edge
-  const basePayout = parseFloat(betAmount) * (100 / targetNumber);
+  // Corrected variable payout calculation: multiplier = 100 / (targetNumber - 1)
+  // This ensures exactly 5% house edge at all targets
+  const rawMultiplier = 100 / (targetNumber - 1);
+  const payoutMultiplier = rawMultiplier * 0.95; // Apply 5% house edge
+  const basePayout = parseFloat(betAmount) * rawMultiplier;
   const finalPayout = basePayout * 0.95; // After 5% house edge
 
   // Expected value calculation
-  const winProbability = (targetNumber - 1) / 100;
+  const winProbability = (targetNumber - 1) / 100; // P(win) = outcomes under target / total
   const lossProbability = 1 - winProbability;
   const expectedValue =
     finalPayout * winProbability - parseFloat(betAmount) * lossProbability;
@@ -141,7 +143,7 @@ export default function BettingForm({
           <div className="flex justify-between text-sm">
             <span className="text-gray-400">Risk Multiplier:</span>
             <span className="text-orange-400 font-bold">
-              {(100 / targetNumber).toFixed(2)}x
+              {(100 / (targetNumber - 1)).toFixed(2)}x
             </span>
           </div>
           <div className="flex justify-between text-sm">
@@ -171,7 +173,7 @@ export default function BettingForm({
           <div className="font-semibold mb-2">📊 Variable Payout System:</div>
           <div>• Lower target = Higher payout but lower win chance</div>
           <div>• Higher target = Lower payout but higher win chance</div>
-          <div>• Multiplier = 100 ÷ Target Number (then -5% fee)</div>
+          <div>• Multiplier = 100 ÷ (Target - 1) (then -5% fee)</div>
         </div>
 
         {/* Place Bet Button */}
