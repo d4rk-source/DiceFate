@@ -23,7 +23,6 @@ contract DiceFate is VRFConsumerBaseV2 {
     uint32 public constant NUM_WORDS = 1;
 
     // Bet Constants
-    uint256 public constant PAYOUT_MULTIPLIER = 195; // 1.95x (in basis points)
     uint256 public constant HOUSE_EDGE_BPS = 500; // 5% (in basis points)
     uint256 public constant BASIS_POINTS = 10000;
     uint256 public constant DICE_RANGE = 100; // 1-100
@@ -81,8 +80,43 @@ contract DiceFate is VRFConsumerBaseV2 {
     }
 
     /**
+     * @notice Calculate payout multiplier based on risk (target number)
+     * Higher risk (lower target) = higher multiplier
+     * Formula: multiplier = 100 / targetNumber
+     * @param targetNumber The target number (2-100)
+     * @return Payout multiplier in basis points
+     */
+    function calculatePayoutMultiplier(
+        uint8 targetNumber
+    ) public pure returns (uint256) {
+        require(targetNumber >= 2 && targetNumber <= 100, "Invalid target");
+        // multiplier = 100 / targetNumber (in basis points)
+        // e.g., target 50 = 100/50 = 2 = 20000 basis points = 2x
+        // e.g., target 10 = 100/10 = 10 = 100000 basis points = 10x
+        return (100 * BASIS_POINTS) / targetNumber;
+    }
+
+    /**
+     * @notice Calculate final payout after house edge
+     * @param betAmount The original bet amount
+     * @param targetNumber The target number
+     * @return Final payout amount to player if they win
+     */
+    function calculateWinPayout(
+        uint256 betAmount,
+        uint8 targetNumber
+    ) public pure returns (uint256) {
+        uint256 multiplier = calculatePayoutMultiplier(targetNumber);
+        uint256 basePayout = (betAmount * multiplier) / BASIS_POINTS;
+        // Apply 5% house edge
+        return (basePayout * (BASIS_POINTS - HOUSE_EDGE_BPS)) / BASIS_POINTS;
+    }
+
+    /**
      * @notice Place a bet on a target number
-     * @param targetNumber Number to roll under (1-100)
+     * @param targetNumber Number to roll under (2-100)
+     * Lower target = higher risk & higher payout
+     * Higher target = lower risk & lower payout
      */
     function placeBet(uint8 targetNumber) external payable returns (uint256) {
         require(msg.value > 0, "Bet must be greater than 0");
@@ -90,10 +124,11 @@ contract DiceFate is VRFConsumerBaseV2 {
             targetNumber >= 2 && targetNumber <= 100,
             "Target must be between 2-100"
         );
-        require(
-            contractBalance >= (msg.value * PAYOUT_MULTIPLIER) / BASIS_POINTS,
-            "Insufficient house balance"
-        );
+
+        // Calculate required payout if player wins
+        uint256 maxPayout = calculateWinPayout(msg.value, targetNumber);
+
+        require(contractBalance >= maxPayout, "Insufficient house balance");
 
         uint256 betId = nextBetId++;
 
@@ -104,7 +139,7 @@ contract DiceFate is VRFConsumerBaseV2 {
         bet.resolved = false;
 
         playerBets[msg.sender].push(betId);
-        contractBalance -= (msg.value * PAYOUT_MULTIPLIER) / BASIS_POINTS; // Reserve funds
+        contractBalance -= maxPayout; // Reserve funds for potential payout
 
         // Request random number
         uint256 requestId = vrfCoordinator.requestRandomWords(
@@ -149,9 +184,8 @@ contract DiceFate is VRFConsumerBaseV2 {
         uint256 payout = 0;
         if (rollResult < bet.targetNumber) {
             bet.won = true;
-            // Calculate payout: bet * 1.95 * (1 - 0.05)
-            payout = (bet.amount * PAYOUT_MULTIPLIER) / BASIS_POINTS;
-            payout = (payout * (BASIS_POINTS - HOUSE_EDGE_BPS)) / BASIS_POINTS;
+            // Calculate variable payout based on risk (targetNumber)
+            payout = calculateWinPayout(bet.amount, bet.targetNumber);
 
             // Transfer payout to player
             (bool success, ) = payable(bet.player).call{value: payout}("");
@@ -160,7 +194,9 @@ contract DiceFate is VRFConsumerBaseV2 {
             contractBalance += bet.amount; // Add bet to house
         } else {
             bet.won = false;
-            contractBalance += (bet.amount * PAYOUT_MULTIPLIER) / BASIS_POINTS; // Return reserved funds
+            // Return reserved payout funds to house
+            uint256 reserved = calculateWinPayout(bet.amount, bet.targetNumber);
+            contractBalance += reserved;
         }
 
         emit BetResolved(betId, bet.player, rollResult, bet.won, payout);

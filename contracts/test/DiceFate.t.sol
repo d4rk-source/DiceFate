@@ -61,7 +61,8 @@ contract DiceFateTest is Test {
     function test_ResolveBetWin() public {
         vm.startPrank(player1);
         uint256 betAmount = 1 ether;
-        uint256 betId = diceFate.placeBet{value: betAmount}(50);
+        uint256 targetNumber = 50;
+        uint256 betId = diceFate.placeBet{value: betAmount}(targetNumber);
         vm.stopPrank();
 
         uint256 player1BalanceBefore = player1.balance;
@@ -77,10 +78,13 @@ contract DiceFateTest is Test {
         assertEq(bet.won, true);
         assertEq(bet.rollResult, 25);
 
-        // Calculate expected payout: 1 ether * 1.95 * (1 - 0.05)
-        // = 1e18 * 195 / 10000 * 9500 / 10000
-        // = 1e18 * 0.185375
-        uint256 expectedPayout = (((betAmount * 195) / 10000) * 9500) / 10000;
+        // Calculate expected payout with variable payouts
+        // For target 50: multiplier = 100/50 = 2x
+        // payout = 1 ether * 2 * 0.95 = 1.9 ether
+        uint256 expectedPayout = diceFate.calculateWinPayout(
+            betAmount,
+            targetNumber
+        );
         assertEq(player1.balance - player1BalanceBefore, expectedPayout);
     }
 
@@ -224,5 +228,117 @@ contract DiceFateTest is Test {
         uint256 minVal = 0;
         uint256 result2 = (minVal % 100) + 1;
         assertEq(result2, 1);
+    }
+
+    function test_VariablePayoutsLowerTargetHigherPayout() public {
+        uint256 betAmount = 1 ether;
+
+        // Target 10: 100/10 = 10x multiplier
+        uint256 payout10 = diceFate.calculateWinPayout(betAmount, 10);
+
+        // Target 50: 100/50 = 2x multiplier
+        uint256 payout50 = diceFate.calculateWinPayout(betAmount, 50);
+
+        // Target 99: 100/99 = 1.01x multiplier
+        uint256 payout99 = diceFate.calculateWinPayout(betAmount, 99);
+
+        // Higher risk (lower target) should have higher payout
+        assertGt(
+            payout10,
+            payout50,
+            "Target 10 should have higher payout than target 50"
+        );
+        assertGt(
+            payout50,
+            payout99,
+            "Target 50 should have higher payout than target 99"
+        );
+
+        // Rough payout estimates (with 5% house edge):
+        // Target 10: ~9.5 ETH
+        // Target 50: ~1.9 ETH
+        // Target 99: ~0.96 ETH
+        assertGt(
+            payout10,
+            9 ether,
+            "Target 10 should pay ~9.5 ETH on 1 ETH bet"
+        );
+        assertLt(payout10, 10 ether, "Target 10 should pay less than 10 ETH");
+
+        assertGt(
+            payout50,
+            1.8 ether,
+            "Target 50 should pay ~1.9 ETH on 1 ETH bet"
+        );
+        assertLt(payout50, 2 ether, "Target 50 should pay less than 2 ETH");
+    }
+
+    function test_VariablePayoutsHighRiskBet() public {
+        vm.startPrank(player1);
+        // High risk bet: target 10 (10% win chance)
+        uint256 betAmount = 1 ether;
+        uint256 targetNumber = 10;
+        uint256 betId = diceFate.placeBet{value: betAmount}(targetNumber);
+        vm.stopPrank();
+
+        uint256 player1BalanceBefore = player1.balance;
+
+        vm.startPrank(owner);
+        // Roll 5 (under 10) = WINNING high-risk bet
+        diceFate.resolveBet(betId, 5);
+        vm.stopPrank();
+
+        DiceFate.Bet memory bet = diceFate.getBet(betId);
+        assertEq(bet.won, true);
+
+        // Target 10: multiplier = 10x, payout = 1 * 10 * 0.95 = 9.5 ETH
+        uint256 expectedPayout = diceFate.calculateWinPayout(
+            betAmount,
+            targetNumber
+        );
+        assertEq(player1.balance - player1BalanceBefore, expectedPayout);
+        assertGt(
+            expectedPayout,
+            9 ether,
+            "High risk bet should payout > 9 ETH"
+        );
+    }
+
+    function test_VariablePayoutsLowRiskBet() public {
+        vm.startPrank(player1);
+        // Low risk bet: target 99 (99% win chance)
+        uint256 betAmount = 1 ether;
+        uint256 targetNumber = 99;
+        uint256 betId = diceFate.placeBet{value: betAmount}(targetNumber);
+        vm.stopPrank();
+
+        uint256 player1BalanceBefore = player1.balance;
+
+        vm.startPrank(owner);
+        // Roll 50 (under 99) = WINNING low-risk bet
+        diceFate.resolveBet(betId, 50);
+        vm.stopPrank();
+
+        DiceFate.Bet memory bet = diceFate.getBet(betId);
+        assertEq(bet.won, true);
+
+        // Target 99: multiplier = 100/99 ~1.01x, payout = 1 * 1.01 * 0.95 ~0.96 ETH
+        uint256 expectedPayout = diceFate.calculateWinPayout(
+            betAmount,
+            targetNumber
+        );
+        assertEq(player1.balance - player1BalanceBefore, expectedPayout);
+        assertLt(expectedPayout, 1 ether, "Low risk bet should payout < 1 ETH");
+    }
+
+    function test_PayoutMultipliers() public {
+        // Test the multipliers directly
+        uint256 mult10 = diceFate.calculatePayoutMultiplier(10); // Should be ~10x = 100000
+        uint256 mult50 = diceFate.calculatePayoutMultiplier(50); // Should be ~2x = 20000
+        uint256 mult99 = diceFate.calculatePayoutMultiplier(99); // Should be ~1.01x = 10101
+
+        assertEq(mult10, 100000, "Target 10 should have 10x multiplier");
+        assertEq(mult50, 20000, "Target 50 should have 2x multiplier");
+        assertEq(mult99, 10101, "Target 99 should have ~1.01x multiplier");
     }
 }

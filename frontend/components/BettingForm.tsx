@@ -50,9 +50,17 @@ export default function BettingForm({
   };
 
   const probabilityPercentage = Math.round((targetNumber / 100) * 100);
-  const payoutMultiplier = 1.95 * (1 - 0.05);
+
+  // Variable payout calculation: multiplier = 100 / targetNumber
+  const payoutMultiplier = (100 / targetNumber) * 0.95; // Apply 5% house edge
+  const basePayout = parseFloat(betAmount) * (100 / targetNumber);
+  const finalPayout = basePayout * 0.95; // After 5% house edge
+
+  // Expected value calculation
+  const winProbability = (targetNumber - 1) / 100;
+  const lossProbability = 1 - winProbability;
   const expectedValue =
-    parseFloat(betAmount) * payoutMultiplier * (probabilityPercentage / 100);
+    finalPayout * winProbability - parseFloat(betAmount) * lossProbability;
 
   return (
     <div className="card">
@@ -66,6 +74,15 @@ export default function BettingForm({
             <span className="text-dice-purple text-2xl font-bold">
               {targetNumber}
             </span>
+            <span className="text-xs font-normal text-gray-500 ml-2">
+              (
+              {targetNumber <= 33
+                ? "🔥 High Risk/Reward"
+                : targetNumber <= 66
+                  ? "⚖️ Balanced"
+                  : "🛡️ Low Risk"}
+              )
+            </span>
           </label>
           <input
             type="range"
@@ -77,8 +94,8 @@ export default function BettingForm({
             disabled={isLoading}
           />
           <div className="flex justify-between text-xs text-gray-400 mt-2">
-            <span>Low Risk (2)</span>
-            <span>High Risk (100)</span>
+            <span>High Risk (2)</span>
+            <span>Low Risk (100)</span>
           </div>
         </div>
 
@@ -122,15 +139,39 @@ export default function BettingForm({
             <span>{betAmount} ETH</span>
           </div>
           <div className="flex justify-between text-sm">
-            <span className="text-gray-400">Payout Multiplier:</span>
-            <span>{payoutMultiplier.toFixed(3)}x (1.95x - 5% fee)</span>
-          </div>
-          <div className="border-t border-gray-600 pt-2 flex justify-between">
-            <span className="text-gray-300 font-medium">If Win:</span>
-            <span className="text-dice-purple font-bold">
-              {expectedValue.toFixed(6)} ETH
+            <span className="text-gray-400">Risk Multiplier:</span>
+            <span className="text-orange-400 font-bold">
+              {(100 / targetNumber).toFixed(2)}x
             </span>
           </div>
+          <div className="flex justify-between text-sm">
+            <span className="text-gray-400">After 5% Fee:</span>
+            <span>{payoutMultiplier.toFixed(3)}x</span>
+          </div>
+          <div className="border-t border-gray-600 pt-2 flex justify-between">
+            <span className="text-gray-300 font-medium">If Win (Payout):</span>
+            <span className="text-green-400 font-bold">
+              {finalPayout.toFixed(6)} ETH
+            </span>
+          </div>
+          <div className="flex justify-between text-xs text-gray-500 pt-1">
+            <span>Expected Value:</span>
+            <span
+              className={expectedValue >= 0 ? "text-green-500" : "text-red-500"}
+            >
+              {expectedValue >= 0 ? "+" : ""}
+              {expectedValue.toFixed(6)} ETH (
+              {((expectedValue / parseFloat(betAmount)) * 100).toFixed(1)}%)
+            </span>
+          </div>
+        </div>
+
+        {/* Risk/Reward Info */}
+        <div className="bg-blue-900 bg-opacity-20 border border-blue-500 rounded-lg p-3 text-xs text-blue-200">
+          <div className="font-semibold mb-2">📊 Variable Payout System:</div>
+          <div>• Lower target = Higher payout but lower win chance</div>
+          <div>• Higher target = Lower payout but higher win chance</div>
+          <div>• Multiplier = 100 ÷ Target Number (then -5% fee)</div>
         </div>
 
         {/* Place Bet Button */}
