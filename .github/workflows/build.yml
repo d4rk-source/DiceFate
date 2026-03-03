@@ -1,0 +1,80 @@
+name: Build & Test
+
+on:
+  push:
+    branches: [main, develop]
+  pull_request:
+    branches: [main, develop]
+
+jobs:
+  test:
+    runs-on: ubuntu-latest
+
+    steps:
+      - uses: actions/checkout@v3
+        with:
+          submodules: recursive
+
+      - name: Install Foundry
+        uses: foundry-rs/foundry-toolchain@v1
+        with:
+          version: nightly
+
+      - name: Build contracts
+        run: |
+          cd contracts
+          forge build
+
+      - name: Run tests
+        run: |
+          cd contracts
+          forge test -v
+
+      - name: Generate coverage
+        run: |
+          cd contracts
+          forge coverage --report lcov
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v3
+        with:
+          node-version: "18"
+
+      - name: Install dependencies
+        run: |
+          cd frontend
+          npm ci
+
+      - name: Build frontend
+        run: |
+          cd frontend
+          npm run build
+
+      - name: Run linter
+        run: |
+          cd frontend
+          npm run lint || true
+
+  gas-report:
+    runs-on: ubuntu-latest
+
+    steps:
+      - uses: actions/checkout@v3
+        with:
+          submodules: recursive
+
+      - name: Install Foundry
+        uses: foundry-rs/foundry-toolchain@v1
+        with:
+          version: nightly
+
+      - name: Generate gas report
+        run: |
+          cd contracts
+          forge test --gas-report > gas-report.txt
+
+      - name: Upload gas report
+        uses: actions/upload-artifact@v3
+        with:
+          name: gas-report
+          path: contracts/gas-report.txt
