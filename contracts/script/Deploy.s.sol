@@ -19,8 +19,8 @@ contract Deploy is Script {
         // Deploy DiceFate
         DiceFate diceFate = new DiceFate(address(mockVRF), KEY_HASH, SUB_ID);
 
-        // Fund the house with 100 ETH
-        diceFate.depositHouse{value: 100 ether}();
+        // Note: Fund the house separately if needed with:
+        // cast send $DICE_FATE_CONTRACT "depositHouse()" --value 10ether
 
         vm.stopBroadcast();
 

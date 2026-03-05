@@ -14,25 +14,41 @@ A complete decentralized gambling application built with Foundry (smart contract
 
 ## Quick Start
 
-### Prerequisites
+### ⚡ Automated Setup (Recommended)
 
-- Node.js 18+
-- Foundry (`foundryup`)
-- Git
-
-### Clone & Setup
+One command starts everything:
 
 ```bash
 cd DiceFate
+chmod +x start-dev.sh
+./start-dev.sh
+```
 
-# Install Foundry dependencies
-make setup
+The script will:
 
-# Build contracts
-make build
+- Start Anvil (local blockchain)
+- Deploy smart contracts
+- Fund test accounts with 100 ETH
+- Configure the frontend
+- Launch the app at http://localhost:3000
 
-# Run tests
-make test
+**That's it!** See [START_DEV_GUIDE.md](START_DEV_GUIDE.md) for details.
+
+### Manual Setup (Advanced)
+
+If you prefer step-by-step control, see [GETTING_STARTED.md](GETTING_STARTED.md).
+
+### Prerequisites
+
+- Node.js 18+
+- Foundry ([Install](https://book.getfoundry.sh/getting-started/installation))
+- Git
+
+Quick Foundry install:
+
+```bash
+curl -L https://foundry.paradigm.xyz | bash
+foundryup
 ```
 
 ## Smart Contract

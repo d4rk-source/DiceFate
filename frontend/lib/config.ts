@@ -16,11 +16,7 @@ export const config = getDefaultConfig({
 });
 
 // Update this with your deployed contract address
-export const DICE_FATE_CONTRACT = (
-  typeof window !== 'undefined' 
-    ? localStorage.getItem('DICE_FATE_CONTRACT') 
-    : process.env.NEXT_PUBLIC_DICE_FATE_CONTRACT
-) || '0x1234567890123456789012345678901234567890';
+export const DICE_FATE_CONTRACT = "0xf426ad4b99d4e8077ad6f55625c6e695354fe5c3";
 
 export const RPC_URL = process.env.NEXT_PUBLIC_RPC_URL || 'http://127.0.0.1:8545';
 

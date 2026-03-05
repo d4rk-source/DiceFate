@@ -2,7 +2,7 @@
 
 ## Welcome! 👋
 
-This is a complete decentralized gambling dApp. Let's get you up and running in minutes.
+This is a complete decentralized gambling dApp. Let's get you up and running in **seconds**.
 
 ## What is DiceFate?
 
@@ -20,26 +20,31 @@ A smart contract-based dice betting game where you:
 - **Git** (usually pre-installed)
 - **MetaMask** browser extension (for frontend)
 
-## Installation (Choose One)
+## ⚡ Quick Start (Recommended)
 
-### Option A: Automatic Setup (Recommended)
+### One-Command Setup
+
+Just run this and everything is automatic:
 
 ```bash
 cd /home/d4rk/my_folder/my_github/DiceFate
-chmod +x setup.sh
-./setup.sh
+chmod +x start-dev.sh
+./start-dev.sh
 ```
 
-This script will:
+**That's it!** The script will:
 
-- Install Foundry dependencies
-- Build smart contracts
-- Run automated tests
-- Install frontend dependencies
+- Start Anvil (local blockchain)
+- Deploy contracts
+- Fund your accounts
+- Configure the frontend
+- Launch the app at http://localhost:3000
 
-**Time: ~5-10 minutes**
+**Time: ~2 minutes**
 
-### Option B: Manual Setup
+---
+
+## Manual Setup (Advanced)
 
 ```bash
 # Navigate to project
@@ -59,7 +64,56 @@ npm install
 
 **Time: ~10-15 minutes**
 
-## Running the dApp
+Then follow the steps in the "Running the dApp" section below.
+
+---
+
+## MetaMask Setup (One-Time Only)
+
+After running the script (or after deploying manually), configure MetaMask:
+
+### Add Localhost Network
+
+1. Open MetaMask
+2. Click the network dropdown
+3. Click **"Add Network"** or **"Add a custom network"**
+4. Fill in:
+   - **Network name:** Localhost 8545
+   - **RPC URL:** http://127.0.0.1:8545
+   - **Chain ID:** 31337
+   - **Currency symbol:** ETH
+
+5. Click **Save**
+6. Switch to this network
+
+### Import Test Account
+
+You'll have 100 ETH to play with. Import this account:
+
+1. Click account icon in MetaMask
+2. Click **"Import Account"**
+3. Paste private key:
+   ```
+   0xac0974bec39a17e36ba4a6b4d238ff944bacb476cad3623e5f21a2f9f5f8e5e8
+   ```
+4. Click **Import**
+
+✅ You should see **100 ETH** in your account!
+
+### Connect to App
+
+1. Go to http://localhost:3000
+2. Click **"Connect Wallet"**
+3. Select **MetaMask**
+4. Approve the connection
+
+**You're ready to play! 🎉**
+
+---
+
+## Running the dApp (Manual Steps Only)
+
+If you didn't use the automatic `start-dev.sh` script, follow these steps:
 
 ### Step 1: Start Local Blockchain
 
@@ -136,38 +190,11 @@ Ready in 2.1s
   - Local:        http://localhost:3000
 ```
 
-### Step 5: Configure MetaMask (First Time Only)
+### Step 5: Configure MetaMask
 
-1. Open MetaMask
-2. Click the network dropdown
-3. Add a custom network:
-   - **Name:** Localhost 8545
-   - **RPC URL:** http://127.0.0.1:8545
-   - **Chain ID:** 31337
-   - **Currency:** ETH
+Follow the steps in the **MetaMask Setup** section above.
 
-4. Switch to this network
-
-### Step 6: Import Anvil Account
-
-1. Click account icon in MetaMask
-2. Click "Import Account"
-3. Paste private key:
-   ```
-   0xac0974bec39a17e36ba4a6b4d238ff944bacb476cad3623e5f21a2f9f5f8e5e8
-   ```
-4. Click Import
-
-You should now see **10,000 ETH** in your account!
-
-### Step 7: Visit the App
-
-1. Open http://localhost:3000
-2. Click "Connect Wallet"
-3. Select MetaMask
-4. Approve connection
-
-**You're in!** 🎉
+---
 
 ## Place Your First Bet
 
