@@ -22,7 +22,7 @@ contract MockVRFCoordinatorV2 {
         uint16 minimumRequestConfirmations,
         uint32 callbackGasLimit,
         uint32 numWords,
-        address indexed sender
+        address sender
     );
 
     function requestRandomWords(
