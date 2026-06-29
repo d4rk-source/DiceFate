@@ -2,6 +2,7 @@
 
 import { useState } from "react";
 import { useAccount } from "wagmi";
+import { LOCAL_CHAIN_ID, isSupportedChain } from "../lib/config";
 
 interface BettingFormProps {
   onPlaceBet: (targetNumber: number, ethAmount: string) => Promise<string>;
@@ -12,7 +13,8 @@ export default function BettingForm({
   onPlaceBet,
   isLoading,
 }: BettingFormProps) {
-  const { isConnected } = useAccount();
+  const { isConnected, chainId } = useAccount();
+  const isWrongNetwork = isConnected && !isSupportedChain(chainId);
   const [targetNumber, setTargetNumber] = useState<number>(50);
   const [betAmount, setBetAmount] = useState<string>("0.1");
   const [error, setError] = useState<string>("");
@@ -25,6 +27,13 @@ export default function BettingForm({
 
       if (!isConnected) {
         setError("Please connect your wallet");
+        return;
+      }
+
+      if (isWrongNetwork) {
+        setError(
+          `Wrong network (detected chain ${chainId ?? "unknown"}). Please switch your wallet to Localhost 8545 (chain ${LOCAL_CHAIN_ID}) before betting.`,
+        );
         return;
       }
 
@@ -49,20 +58,18 @@ export default function BettingForm({
     }
   };
 
-  const probabilityPercentage = Math.round((targetNumber / 100) * 100);
+  // Win condition: roll < targetNumber, so winning outcomes are [1, targetNumber-1].
+  const probabilityPercentage = targetNumber - 1;
 
-  // Corrected variable payout calculation: multiplier = 100 / (targetNumber - 1)
-  // This ensures exactly 5% house edge at all targets
+  // Mirror the on-chain formula: multiplier = DICE_RANGE / (targetNumber - 1), then -5% fee.
   const rawMultiplier = 100 / (targetNumber - 1);
-  const payoutMultiplier = rawMultiplier * 0.95; // Apply 5% house edge
-  const basePayout = parseFloat(betAmount) * rawMultiplier;
-  const finalPayout = basePayout * 0.95; // After 5% house edge
+  const payoutMultiplier = rawMultiplier * 0.95;
+  const finalPayout = parseFloat(betAmount) * payoutMultiplier;
 
-  // Expected value calculation
-  const winProbability = (targetNumber - 1) / 100; // P(win) = outcomes under target / total
-  const lossProbability = 1 - winProbability;
+  // P(win) = (targetNumber - 1) / 100; mirrors winProbabilityBps() on-chain.
+  const winProbability = (targetNumber - 1) / 100;
   const expectedValue =
-    finalPayout * winProbability - parseFloat(betAmount) * lossProbability;
+    finalPayout * winProbability - parseFloat(betAmount) * (1 - winProbability);
 
   return (
     <div className="card">
@@ -179,7 +186,7 @@ export default function BettingForm({
         {/* Place Bet Button */}
         <button
           onClick={handlePlaceBet}
-          disabled={isLoading || !isConnected}
+          disabled={isLoading || !isConnected || isWrongNetwork}
           className="btn-primary w-full text-lg font-bold py-3"
         >
           {isLoading ? (
@@ -187,10 +194,20 @@ export default function BettingForm({
               <div className="spinner border-2 border-white"></div>
               Placing Bet...
             </span>
+          ) : isWrongNetwork ? (
+            "Switch to Localhost 8545"
           ) : (
             "🎲 Place Bet"
           )}
         </button>
+
+        {isWrongNetwork && (
+          <div className="bg-yellow-500 bg-opacity-20 border border-yellow-500 rounded-lg p-4 text-yellow-200 text-sm">
+            Your wallet is connected to chain {chainId ?? "unknown"}. This dapp
+            only accepts chain {LOCAL_CHAIN_ID} (Anvil). Use the wallet controls
+            above to switch and retry.
+          </div>
+        )}
 
         {/* Error Message */}
         {error && (

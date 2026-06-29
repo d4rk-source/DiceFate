@@ -20,16 +20,8 @@
     "isolatedModules": true,
     "jsx": "preserve",
     "types": [
-      "node",
-      "jest",
-      "@testing-library/jest-dom"
+      "node"
     ],
-    "baseUrl": ".",
-    "paths": {
-      "@/*": [
-        "./*"
-      ]
-    },
     "allowJs": true,
     "noEmit": true,
     "incremental": true,

@@ -10,8 +10,8 @@ contract Deploy is Script {
     uint64 public constant SUB_ID = 1;
 
     function run() public {
-        uint256 deployerPrivateKey = vm.envUint("PRIVATE_KEY");
-        vm.startBroadcast(deployerPrivateKey);
+        uint256 deployerKey = vm.envUint("PRIVATE_KEY");
+        vm.startBroadcast(deployerKey);
 
         // Deploy mock VRF coordinator
         MockVRFCoordinatorV2 mockVRF = new MockVRFCoordinatorV2();

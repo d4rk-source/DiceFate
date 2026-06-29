@@ -44,7 +44,7 @@ make anvil
 cd contracts
 
 # Set private key (or use default Anvil key)
-export PRIVATE_KEY=0xac0974bec39a17e36ba4a6b4d238ff944bacb476cad3623e5f21a2f9f5f8e5e8
+export PRIVATE_KEY=0xac0974bec39a17e36ba4a6b4d238ff944bacb478cbed5efcae784d7bf4f2ff80
 
 # Run deployment script
 forge script script/Deploy.s.sol:Deploy \
@@ -94,7 +94,7 @@ NEXT_PUBLIC_DICE_FATE_CONTRACT=0xe7f1725E7734CE288F8367e1Bb143E90bb3F0512
 #### 6. **Import Anvil Account to MetaMask**
 
 1. Click account icon → Import Account
-2. Paste private key: `0xac0974bec39a17e36ba4a6b4d238ff944bacb476cad3623e5f21a2f9f5f8e5e8`
+2. Paste private key: `0xac0974bec39a17e36ba4a6b4d238ff944bacb478cbed5efcae784d7bf4f2ff80`
 3. Import
 
 Account should show 10,000 ETH balance.
@@ -128,7 +128,7 @@ Since we're using MockVRFCoordinator, you manually resolve bets:
 ```bash
 # In Terminal 2
 export DICE_FATE_CONTRACT=0xe7f1725E7734CE288F8367e1Bb143E90bb3F0512
-export PRIVATE_KEY=0xac0974bec39a17e36ba4a6b4d238ff944bacb476cad3623e5f21a2f9f5f8e5e8
+export PRIVATE_KEY=0xac0974bec39a17e36ba4a6b4d238ff944bacb478cbed5efcae784d7bf4f2ff80
 
 # Resolve bet #1 with random number 25 (win!)
 cast send $DICE_FATE_CONTRACT \

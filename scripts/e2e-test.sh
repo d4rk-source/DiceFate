@@ -7,7 +7,7 @@
 set -e
 
 # Configuration
-PRIVATE_KEY=${PRIVATE_KEY:-0xac0974bec39a17e36ba4a6b4d238ff944bacb476cad3623e5f21a2f9f5f8e5e8}
+PRIVATE_KEY=${PRIVATE_KEY:-0xac0974bec39a17e36ba4a6b4d238ff944bacb478cbed5efcae784d7bf4f2ff80}
 RPC_URL=${RPC_URL:-http://127.0.0.1:8545}
 BET_AMOUNT="1"    # ETH
 BET_TARGET="50"   # 50% win chance

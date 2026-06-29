@@ -1,364 +1,199 @@
-# 🎲 DiceFate - Provably Fair Dice Betting dApp
+# DiceFate
 
-A complete decentralized gambling application built with Foundry (smart contracts) and Next.js (frontend). Users bet ETH on dice rolls with Chainlink VRF for provably fair randomness.
+A home lab GameFi project I built to practise smart contract development end-to-end — from Solidity through a Foundry test suite to a React/wagmi frontend. The goal was to prove out a complete on-chain betting loop with provably fair randomness, not to build a production casino.
 
-## Features
+---
 
-- ✅ **Provably Fair**: Chainlink VRF for cryptographic randomness
-- ✅ **Smart Contract**: Built with Foundry in Solidity 0.8.20
-- ✅ **Full Test Suite**: Comprehensive Foundry tests
-- ✅ **React Frontend**: Next.js with wagmi + RainbowKit wallet integration
-- ✅ **Responsive UI**: Tailwind CSS styling
-- ✅ **Local Deployment**: Anvil/Hardhat support
-- ✅ **House Edge**: 1.95x payout multiplier minus 5% house edge
+## What it does
 
-## Quick Start
+Players pick a roll-under target (2–100) and bet ETH. A random number is drawn via Chainlink VRF; if the roll lands below the target, the player wins a payout scaled to the risk they took. The house maintains a mathematically exact 5% edge at every target level — no fixed multiplier cap, just pure math.
 
-### ⚡ Automated Setup (Recommended)
+| Target | Win chance | Multiplier | Net payout (1 ETH bet) |
+|--------|-----------|------------|------------------------|
+| 2      | 1%        | ~100×      | ~95 ETH                |
+| 10     | 9%        | ~11.1×     | ~10.6 ETH              |
+| 50     | 49%       | ~2.04×     | ~1.94 ETH              |
+| 99     | 98%       | ~1.02×     | ~0.97 ETH              |
 
-One command starts everything:
+Payout formula: `betAmount × (100 / (target − 1)) × 0.95`
+
+---
+
+## Stack
+
+| Layer          | Tech                                        |
+|----------------|---------------------------------------------|
+| Smart contract | Solidity 0.8.20, Foundry                    |
+| Randomness     | Chainlink VRF v2 (mocked locally)           |
+| Frontend       | Next.js 14, wagmi v2, viem, Tailwind CSS    |
+| Local chain    | Anvil (ships with Foundry)                  |
+
+---
+
+## Quick start
+
+One script boots everything:
 
 ```bash
-cd DiceFate
 chmod +x start-dev.sh
 ./start-dev.sh
 ```
 
-The script will:
+It will start Anvil, deploy the contracts, seed the house with 100 ETH, write the contract address to the frontend config, and launch `http://localhost:3000`.
 
-- Start Anvil (local blockchain)
-- Deploy smart contracts
-- Fund test accounts with 100 ETH
-- Configure the frontend
-- Launch the app at http://localhost:3000
+**Prerequisites:** Node.js 18+, Foundry (`curl -L https://foundry.paradigm.xyz | bash && foundryup`)
 
-**That's it!** See [START_DEV_GUIDE.md](START_DEV_GUIDE.md) for details.
-
-### Manual Setup (Advanced)
-
-If you prefer step-by-step control, see [GETTING_STARTED.md](GETTING_STARTED.md).
-
-### Prerequisites
-
-- Node.js 18+
-- Foundry ([Install](https://book.getfoundry.sh/getting-started/installation))
-- Git
-
-Quick Foundry install:
+### Manual setup
 
 ```bash
-curl -L https://foundry.paradigm.xyz | bash
-foundryup
-```
+# Terminal 1 — local chain
+anvil
 
-## Smart Contract
-
-### Files
-
-- **src/DiceFate.sol** - Main betting contract
-- **src/VRFConsumerBaseV2.sol** - VRF consumer base class
-- **src/MockVRFCoordinatorV2.sol** - Mock VRF for local testing
-- **test/DiceFate.t.sol** - Comprehensive test suite
-- **script/Deploy.s.sol** - Deployment script
-
-### Key Functions
-
-#### `placeBet(uint8 targetNumber) payable`
-
-- User places a bet on a target number (2-100)
-- Sends ETH as the bet amount
-- Returns the bet ID
-
-**Example:**
-
-```solidity
-// Bet 1 ETH to roll under 50 (50% win chance)
-diceFate.placeBet{value: 1 ether}(50);
-```
-
-#### `resolveBet(uint256 betId, uint256 randomNumber)`
-
-- Owner/automation resolves a bet with random number
-- Calculates dice roll: `(randomNumber % 100) + 1`
-- Transfers payout if player won
-
-#### `depositHouse()`
-
-- Owner deposits ETH to house balance for payouts
-
-#### `withdrawHouse(uint256 amount)`
-
-- Owner withdraws from house balance
-
-### Payout Calculation
-
-- If roll < targetNumber: **WIN**
-  - Payout = `betAmount × 1.95 × (1 - 0.05)`
-  - Example: 1 ETH bet → 1.8525 ETH payout
-- If roll ≥ targetNumber: **LOSE**
-  - House keeps the bet
-
-## Testing
-
-```bash
-cd contracts
-
-# Run all tests
-make test
-
-# Run with gas report
-make test-gas
-
-# Watch mode (re-run on changes)
-make test-watch
-```
-
-### Test Coverage
-
-- ✅ Basic bet placement
-- ✅ Multiple bets per player
-- ✅ Winning bets with correct payout
-- ✅ Losing bets
-- ✅ Invalid target numbers
-- ✅ Zero bets rejection
-- ✅ Insufficient house balance
-- ✅ House deposit/withdraw
-- ✅ ETH receive function
-- ✅ Edge cases (roll exactly 100)
-
-## Local Deployment
-
-### 1. Start Anvil
-
-```bash
-make anvil
-# Anvil runs on http://127.0.0.1:8545
-```
-
-### 2. Deploy Contract
-
-In a new terminal:
-
-```bash
-cd contracts
-
-export PRIVATE_KEY=0xac0974bec39a17e36ba4a6b4d238ff944bacb476cad3623e5f21a2f9f5f8e5e8
-
+# Terminal 2 — deploy
+export PRIVATE_KEY=0xac0974bec39a17e36ba4a6b4d238ff944bacb478cbed5efcae784d7bf4f2ff80
 make deploy-local
+
+# Terminal 3 — frontend
+cd frontend && npm install && npm run dev
 ```
 
-This will:
+MetaMask network: Chain ID `31337`, RPC `http://127.0.0.1:8545`. Import the private key above to get a funded test account.
 
-- Deploy MockVRFCoordinatorV2
-- Deploy DiceFate with 100 ETH house balance
-- Output contract addresses
+---
 
-Save the DiceFate contract address and update `frontend/lib/config.ts`:
+## Contract design
 
-```typescript
-export const DICE_FATE_CONTRACT = "0x..."; // Your deployed address
+```
+contracts/src/
+├── DiceFate.sol              — main game contract
+├── VRFConsumerBaseV2.sol     — Chainlink base (vendored)
+└── MockVRFCoordinatorV2.sol  — local VRF simulator
 ```
 
-## Frontend Setup
+### Resolution paths
+
+**Production (Chainlink VRF):**
+1. `placeBet()` → `requestRandomWords()` → stores `requestId → betId`
+2. Chainlink node calls `fulfillRandomWords(requestId, randomWords)` automatically
+3. Contract looks up the bet via `requestIdToBetId` and settles it
+
+**Local dev (`rollDice`):**
+1. `placeBet()` → same VRF request flow (hits the mock coordinator)
+2. Player clicks **Roll Dice** in the UI, which calls `rollDice(betId)` — no CLI or owner needed
+3. Contract derives the roll from `block.prevrandao` mixed with bet-specific data
+
+`rollDice` uses block entropy, which validators can weakly influence, so it is **not production-safe** — its only purpose is making the game playable locally without a Chainlink subscription. The VRF wiring (`requestRandomWords` → `fulfillRandomWords` → `requestIdToBetId` lookup) is fully implemented and tested; swapping in a real VRF subscription is the only step needed for mainnet.
+
+Both paths share `_resolveBet()`, so the payout logic is identical regardless of how randomness arrives.
+
+### Accounting invariant
+
+`contractBalance` tracks available house liquidity. At any point:
+
+```
+contractBalance ≤ address(this).balance
+```
+
+When a bet is placed, `contractBalance` is reduced by the potential payout (reservation). On resolution:
+
+- **Win** — payout sent to player; house is credited with the bet amount as partial offset.
+- **Loss** — reservation is returned **and** the house is credited with the player's bet.
+
+The invariant is verified by 128,000 calls across the Foundry invariant test suite.
+
+### Key design choices
+
+- **Custom errors** instead of revert strings — cheaper to decode, better DX.
+- **Immutable VRF params** (`vrfCoordinator`, `keyHash`, `subId`) — set once, never changed.
+- **`nextBetId` starts at 1** — zero is reserved as the "not found" sentinel in `requestIdToBetId`.
+- **Checks-Effects-Interactions** throughout — all state is committed before any external ETH transfer.
+- **Simple reentrancy guard** — a `_locked` bool protects `placeBet`, `resolveBet`, and `withdrawHouse`.
+
+---
+
+## Tests
 
 ```bash
-cd frontend
-
-# Install dependencies
-npm install
-
-# Update contract address in lib/config.ts
-# Then start development server
-npm run dev
+make test          # full suite
+make test-gas      # with gas report
 ```
 
-Visit `http://localhost:3000` to access the UI.
+The suite is organised into three contracts:
 
-## Frontend Components
+| Contract               | What it covers                                      |
+|------------------------|-----------------------------------------------------|
+| `DiceFateTest`         | 28 unit + integration tests                         |
+| `DiceFateFuzzTest`     | 4 property-based fuzz tests (256 runs each)         |
+| `DiceFateInvariantTest`| 2 invariants, 128k calls each via a stateful handler|
 
-### Pages
+**Fuzz properties tested:**
+- Payout is always positive
+- Lower target always pays more than higher target (risk ordering)
+- House edge is applied within ±1 wei of exactly 5%
+- Contract balance never goes insolvent after any sequence of bets and resolutions
 
-- **app/page.tsx** - Main dashboard with betting and history
+**VRF callback tested directly** — `test_VRFCallback_Win` and `test_VRFCallback_Loss` call `MockVRFCoordinatorV2.fulfillRandomWords()` to exercise the production `fulfillRandomWords` → `_resolveBet` path, separate from the manual `resolveBet` path.
 
-### Components
+---
 
-- **WalletConnect.tsx** - RainbowKit wallet connection
-- **BettingForm.tsx** - Bet placement with probability visualization
-- **ContractInfo.tsx** - User/house balance display
-- **BetHistory.tsx** - Player's bet history and results
-
-### Key Features
-
-- Real-time balance updates
-- Win probability calculator
-- Expected value display
-- Bet history with results
-- Responsive design
-
-## Contract Architecture
-
-### State Variables
-
-```solidity
-// VRF Configuration
-VRFCoordinatorV2Interface public vrfCoordinator;
-bytes32 public keyHash;
-uint64 public subId;
-
-// Game Parameters
-uint256 public constant PAYOUT_MULTIPLIER = 195;    // 1.95x
-uint256 public constant HOUSE_EDGE_BPS = 500;       // 5%
-uint256 public constant DICE_RANGE = 100;           // 1-100
-
-// Bets & Balances
-mapping(uint256 => Bet) public bets;
-mapping(address => uint256[]) public playerBets;
-uint256 public contractBalance;
-```
-
-### Events
-
-```solidity
-event BetPlaced(uint256 betId, address player, uint256 amount, uint8 targetNumber, uint256 requestId);
-event BetResolved(uint256 betId, address player, uint256 rollResult, bool won, uint256 payout);
-event HouseDeposit(address depositor, uint256 amount);
-event HouseWithdraw(address withdrawer, uint256 amount);
-```
-
-## Chainlink VRF Integration
-
-The contract uses Chainlink VRF v2 for provably fair randomness. In the local deployment:
-
-1. **MockVRFCoordinatorV2** simulates VRF coordinator
-2. `placeBet()` calls `requestRandomWords()` to request randomness
-3. Owner/automation calls `resolveBet()` with random number (simulating VRF callback)
-4. Dice roll calculated and payout distributed
-
-### For Production Deployment
-
-You would need to:
-
-1. Deploy on a testnet (Sepolia, Mumbai, etc.)
-2. Set up Chainlink VRF subscription
-3. Implement `fulfillRandomWords()` callback
-4. Remove `resolveBet()` owner function
-
-## Common Issues & Troubleshooting
-
-### "Insufficient house balance" error
-
-The contract requires enough ETH reserved for potential payouts. Deposit more with:
-
-```bash
-cast send $DICE_FATE_CONTRACT --value 100ether "depositHouse()" --rpc-url http://localhost:8545 --private-key $PRIVATE_KEY
-```
-
-### Wallet not connecting
-
-- Ensure Anvil is running on `http://127.0.0.1:8545`
-- Add localhost network to MetaMask:
-  - Chain ID: 31337
-  - RPC URL: http://127.0.0.1:8545
-  - Currency: ETH
-
-### Tests failing
-
-```bash
-cd contracts
-make clean
-make build
-make test
-```
-
-## Environment Variables
-
-Create `.env.local` in root for deployment:
-
-```
-PRIVATE_KEY=your_private_key_here
-RPC_URL=http://127.0.0.1:8545
-```
-
-## Project Structure
+## Project structure
 
 ```
 DiceFate/
-├── contracts/                    # Foundry project
+├── contracts/
 │   ├── src/
 │   │   ├── DiceFate.sol
 │   │   ├── VRFConsumerBaseV2.sol
 │   │   └── MockVRFCoordinatorV2.sol
 │   ├── test/
-│   │   └── DiceFate.t.sol
+│   │   └── DiceFate.t.sol        ← unit, fuzz, and invariant tests
 │   ├── script/
 │   │   └── Deploy.s.sol
 │   └── foundry.toml
-│
-├── frontend/                     # Next.js app
+├── frontend/
 │   ├── app/
 │   │   ├── page.tsx
 │   │   ├── layout.tsx
-│   │   ├── globals.css
 │   │   └── providers.tsx
 │   ├── components/
 │   │   ├── WalletConnect.tsx
 │   │   ├── BettingForm.tsx
 │   │   ├── ContractInfo.tsx
 │   │   └── BetHistory.tsx
-│   ├── lib/
-│   │   ├── abi.ts
-│   │   ├── config.ts
-│   │   └── hooks.ts
-│   └── package.json
-│
+│   └── lib/
+│       ├── abi.ts                ← typed ABI kept in sync with the contract
+│       ├── config.ts             ← wagmi config and chain setup
+│       └── hooks.ts              ← useDiceFate hook
 ├── Makefile
-└── README.md
+└── start-dev.sh
 ```
 
-## Performance & Gas Costs
+---
 
-### Gas Estimates (Anvil)
+## Gas estimates (Anvil)
 
-- PlaceBet: ~95,000 gas
-- ResolveBet (win): ~110,000 gas
-- ResolveBet (loss): ~80,000 gas
-- DepositHouse: ~20,000 gas
+| Function           | Gas     |
+|--------------------|---------|
+| `placeBet`         | ~297k   |
+| `resolveBet` (win) | ~361k   |
+| `resolveBet` (loss)| ~350k   |
+| `depositHouse`     | ~26k    |
 
-## Security Notes
+---
 
-⚠️ **This is demo code for educational purposes.**
+## Security notes
 
-For production deployment:
+This is demo / portfolio code. Before any real deployment:
 
-- Audit smart contracts with professional security firm
-- Implement proper access control for `resolveBet()`
-- Study Chainlink VRF security best practices
-- Add reentrancy guards if needed
-- Implement bet expiry mechanisms
-- Add emergency pause functionality
+- [ ] Professional audit
+- [ ] Replace `resolveBet` with VRF-only resolution (remove the owner escape hatch)
+- [ ] Set up a Chainlink VRF subscription on the target network
+- [ ] Add bet expiry for requests that are never fulfilled
+- [ ] Consider a `Pausable` pattern for emergency stops
+- [ ] Set sensible `MIN_BET` / `MAX_BET` limits relative to house liquidity
+
+---
 
 ## License
 
 MIT
-
-## Support
-
-For issues or questions:
-
-1. Check the troubleshooting section
-2. Review contract tests for usage examples
-3. Check Foundry/Next.js documentation
-
-## Future Enhancements
-
-- [ ] Multiple game modes
-- [ ] Leaderboards
-- [ ] Automated VRF callback (production)
-- [ ] Referral system
-- [ ] NFT rewards
-- [ ] Cross-chain bridging
-- [ ] DAO governance
-
----
-
-Built with ❤️ using Foundry + Next.js

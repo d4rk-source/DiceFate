@@ -1,174 +1,122 @@
 #!/bin/bash
-
-# 🎲 DiceFate One-Command Start Script
-# Automates: Anvil start → Contract deployment → Frontend launch
+# DiceFate local dev launcher
+# Starts Anvil, deploys contracts, seeds the house, then launches the frontend.
 # Usage: ./start-dev.sh
 
-set -e
+set -euo pipefail
 
-# Colors for output
-RED='\033[0;31m'
-GREEN='\033[0;32m'
-YELLOW='\033[1;33m'
-BLUE='\033[0;34m'
-NC='\033[0m' # No Color
+# ── Config ────────────────────────────────────────────────────────────────────
+RPC="http://127.0.0.1:8545"
+# Anvil account #0 — pre-funded with 10,000 ETH on every Anvil startup.
+PK="0xac0974bec39a17e36ba4a6b4d238ff944bacb478cbed5efcae784d7bf4f2ff80"
+HOUSE_ETH=100
+# Optional: set PLAYER_ADDR to airdrop test ETH to your own wallet.
+PLAYER_ADDR="${PLAYER_ADDR:-}"
+PLAYER_ETH="${PLAYER_ETH:-10}"
 
-echo -e "${BLUE}"
-echo "╔════════════════════════════════════════════════════════════╗"
-echo "║         🎲 DiceFate - One-Command Startup Script 🎲        ║"
-echo "╚════════════════════════════════════════════════════════════╝"
-echo -e "${NC}"
+# ── Helpers ───────────────────────────────────────────────────────────────────
+GREEN='\033[0;32m'; BLUE='\033[0;34m'; YELLOW='\033[1;33m'; RED='\033[0;31m'; NC='\033[0m'
+ok()   { echo -e "  ${GREEN}✓${NC}  $*"; }
+info() { echo -e "  ${BLUE}→${NC}  $*"; }
+die()  { echo -e "\n  ${RED}✗  $*${NC}\n" >&2; exit 1; }
 
-# Configuration
-ANVIL_PORT=8545
-ANVIL_HOST="127.0.0.1"
-RPC_URL="http://${ANVIL_HOST}:${ANVIL_PORT}"
-DEPLOYER_PK="0xac0974bec39a17e36ba4a6b4d238ff944bacb476cad3623e5f21a2f9f5f8e5e8"
-DEPLOYER_ADDR="0xd21C0c164Ffe0666b92eF93e62D7d80b0F737d57"
-FUNDOR_ADDR="0xf39Fd6e51aad88f6f4ce6aB8827279cffFb92266"
-INITIAL_FUND="100"
-HOUSE_FUND="10"
-
-# Step counters
-STEP=1
-TOTAL_STEPS=7
-
-# Helper functions
-step_start() {
-    echo -e "\n${BLUE}[${STEP}/${TOTAL_STEPS}]${NC} $1"
-    STEP=$((STEP + 1))
+# Run a command, show its output only if it fails.
+run_silent() {
+    local label="$1"; shift
+    info "$label ..."
+    local out
+    out=$("$@" 2>&1) && ok "$label" || { echo "$out" >&2; die "$label failed"; }
 }
 
-step_done() {
-    echo -e "${GREEN}✓${NC} $1"
-}
+# ── Header ────────────────────────────────────────────────────────────────────
+echo ""
+echo -e "  ${BLUE}DiceFate${NC} — local dev startup"
+echo ""
 
-error() {
-    echo -e "${RED}✗${NC} $1"
-    exit 1
-}
+# ── Dependency check ─────────────────────────────────────────────────────────
+for cmd in anvil forge cast node npm; do
+    command -v "$cmd" >/dev/null 2>&1 \
+        || die "'$cmd' not found. See README for install instructions."
+done
+ok "dependencies OK (anvil, forge, cast, node, npm)"
 
-warning() {
-    echo -e "${YELLOW}⚠${NC} $1"
-}
-
-# Check dependencies
-step_start "Checking dependencies..."
-command -v foundryup >/dev/null 2>&1 || error "Foundry not found. Install: curl -L https://foundry.paradigm.xyz | bash"
-command -v anvil >/dev/null 2>&1 || error "Anvil not found. Run: foundryup"
-command -v cast >/dev/null 2>&1 || error "Cast not found. Run: foundryup"
-command -v node >/dev/null 2>&1 || error "Node.js not found. Install from https://nodejs.org"
-command -v npm >/dev/null 2>&1 || error "npm not found"
-step_done "All dependencies present"
-
-# Check if Anvil is already running
-step_start "Checking Anvil status..."
-if cast block-number --rpc-url ${RPC_URL} > /dev/null 2>&1; then
-    step_done "Anvil already running on ${RPC_URL}"
+# ── Anvil ─────────────────────────────────────────────────────────────────────
+if cast block-number --rpc-url "$RPC" >/dev/null 2>&1; then
+    ok "Anvil already running on $RPC"
 else
-    echo "Starting Anvil..."
-    anvil --host ${ANVIL_HOST} --port ${ANVIL_PORT} > /tmp/anvil.log 2>&1 &
+    info "Starting Anvil on $RPC ..."
+    anvil --host 127.0.0.1 --port 8545 >/tmp/dicefate-anvil.log 2>&1 &
     ANVIL_PID=$!
-    echo "Anvil process started (PID: $ANVIL_PID)"
-    
-    # Wait for Anvil to be ready
-    echo "Waiting for Anvil to start..."
-    for i in {1..30}; do
-        if cast block-number --rpc-url ${RPC_URL} > /dev/null 2>&1; then
-            echo "Anvil is ready!"
-            step_done "Anvil started successfully"
-            break
-        fi
-        if [ $i -eq 30 ]; then
-            error "Anvil failed to start. Check /tmp/anvil.log"
-        fi
+    for i in $(seq 1 30); do
+        cast block-number --rpc-url "$RPC" >/dev/null 2>&1 && break
+        [ "$i" -eq 30 ] && die "Anvil failed to start — check /tmp/dicefate-anvil.log"
         sleep 1
     done
+    ok "Anvil started (PID $ANVIL_PID)"
 fi
 
-# Fund deployer account
-step_start "Funding deployer account..."
-DEPLOYER_BALANCE=$(cast balance ${DEPLOYER_ADDR} --rpc-url ${RPC_URL} 2>/dev/null || echo "0")
-if [ "$DEPLOYER_BALANCE" = "0" ]; then
-    echo "Transferring ${INITIAL_FUND} ETH to ${DEPLOYER_ADDR}..."
-    cast send ${DEPLOYER_ADDR} --value ${INITIAL_FUND}ether \
-        --rpc-url ${RPC_URL} \
-        --from ${FUNDOR_ADDR} \
-        --unlocked > /dev/null 2>&1
-    step_done "Deployer account funded"
-else
-    step_done "Deployer account already has balance"
-fi
-
-# Build contracts
-step_start "Building contracts..."
+# ── Contracts ─────────────────────────────────────────────────────────────────
 cd contracts
-forge build > /dev/null 2>&1
-step_done "Contracts built"
 
-# Deploy contracts
-step_start "Deploying contracts..."
-export PRIVATE_KEY=${DEPLOYER_PK}
-forge script script/Deploy.s.sol:Deploy \
-    --rpc-url ${RPC_URL} \
-    --private-key ${DEPLOYER_PK} \
-    -v --broadcast > /dev/null 2>&1
+run_silent "Building contracts" forge build
 
-# Extract contract address from broadcast JSON
-DICE_FATE_ADDR=$(grep -A 1 '"contractName": "DiceFate"' broadcast/Deploy.s.sol/31337/run-latest.json | grep -o '0x[a-fA-F0-9]*' | head -1)
+info "Deploying contracts ..."
+DEPLOY_OUT=$(PRIVATE_KEY="$PK" forge script script/Deploy.s.sol:Deploy \
+    --rpc-url "$RPC" --private-key "$PK" --broadcast 2>&1) \
+    || { echo "$DEPLOY_OUT" >&2; die "Deployment failed"; }
+ok "Contracts deployed"
 
-if [ -z "$DICE_FATE_ADDR" ]; then
-    error "Failed to extract contract address from deployment"
-fi
+# Parse the DiceFate address out of the broadcast artefact.
+ADDR=$(grep -A 1 '"contractName": "DiceFate"' broadcast/Deploy.s.sol/31337/run-latest.json \
+       | grep -o '0x[a-fA-F0-9]*' | head -1)
+[ -z "$ADDR" ] && die "Could not parse DiceFate address from broadcast output."
+echo -e "       address: ${BLUE}${ADDR}${NC}"
 
-step_done "Contracts deployed"
-echo -e "    ${BLUE}DiceFate: ${DICE_FATE_ADDR}${NC}"
+info "Funding house with ${HOUSE_ETH} ETH ..."
+cast send "$ADDR" "depositHouse()" \
+    --value "${HOUSE_ETH}ether" --rpc-url "$RPC" --private-key "$PK" \
+    >/dev/null 2>&1 \
+    && ok "House funded with ${HOUSE_ETH} ETH" \
+    || { echo -e "  ${YELLOW}!${NC}  House deposit failed — fund manually after startup."; }
 
-# Fund house
-step_start "Funding game house..."
-if cast send ${DICE_FATE_ADDR} "depositHouse()" \
-    --value ${HOUSE_FUND}ether \
-    --rpc-url ${RPC_URL} \
-    --private-key ${DEPLOYER_PK} \
-    > /dev/null 2>&1; then
-    step_done "House funded with ${HOUSE_FUND} ETH"
-else
-    warning "Could not fund house (insufficient deployer balance). You can manually fund later."
+if [ -n "$PLAYER_ADDR" ]; then
+    info "Airdropping ${PLAYER_ETH} ETH to ${PLAYER_ADDR} ..."
+    cast send "$PLAYER_ADDR" \
+        --value "${PLAYER_ETH}ether" --rpc-url "$RPC" --private-key "$PK" \
+        >/dev/null 2>&1 \
+        && ok "Airdropped ${PLAYER_ETH} ETH to ${PLAYER_ADDR}" \
+        || echo -e "  ${YELLOW}!${NC}  Airdrop failed — fund manually: cast send $PLAYER_ADDR --value ${PLAYER_ETH}ether --private-key \$PK"
 fi
 
 cd ..
 
-# Update frontend config
-step_start "Updating frontend configuration..."
-FRONTEND_CONFIG="frontend/lib/config.ts"
-
-# Update the contract address in config
-if [ -f "$FRONTEND_CONFIG" ]; then
-    # Use a more robust sed command that works on both macOS and Linux
-    sed -i.bak "s|export const DICE_FATE_CONTRACT = .*|export const DICE_FATE_CONTRACT = \"${DICE_FATE_ADDR}\";|" "$FRONTEND_CONFIG"
-    rm -f "${FRONTEND_CONFIG}.bak"
-    step_done "Frontend config updated"
-else
-    warning "Could not find frontend config at $FRONTEND_CONFIG"
-fi
-
-echo -e "\n${GREEN}════════════════════════════════════════════════════════════${NC}"
-echo -e "${GREEN}🎉 Setup Complete!${NC}\n"
-echo -e "Contract deployed to: ${BLUE}${DICE_FATE_ADDR}${NC}"
-echo -e "RPC URL: ${BLUE}${RPC_URL}${NC}"
-echo -e "House funded with: ${BLUE}${HOUSE_FUND} ETH${NC}\n"
-echo -e "${YELLOW}Next steps:${NC}"
-echo -e "  1. Open MetaMask and add this network:"
-echo -e "     - Name: Localhost 8545"
-echo -e "     - RPC: ${RPC_URL}"
-echo -e "     - Chain ID: 31337"
-echo -e "  2. Import account with private key:"
-echo -e "     - ${DEPLOYER_PK}"
-echo -e "  3. You'll have 100 ETH to play with"
-echo ""
-echo -e "${BLUE}Starting frontend...${NC}\n"
-echo -e "${GREEN}════════════════════════════════════════════════════════════${NC}\n"
-
-# Start frontend
+# ── Frontend ──────────────────────────────────────────────────────────────────
 cd frontend
+
+run_silent "Installing frontend dependencies" npm install --silent
+
+info "Writing contract address to frontend config ..."
+sed -i.bak "s|export const DICE_FATE_CONTRACT = .*|export const DICE_FATE_CONTRACT = \"${ADDR}\";|" \
+    lib/config.ts
+rm -f lib/config.ts.bak
+ok "Config updated"
+
+# ── Summary ───────────────────────────────────────────────────────────────────
+echo ""
+echo -e "  ${GREEN}All set!${NC}"
+echo ""
+echo -e "  Contract : ${BLUE}${ADDR}${NC}"
+echo -e "  RPC      : ${BLUE}${RPC}${NC}"
+echo -e "  App      : ${BLUE}http://localhost:3000${NC} (starting now)"
+echo ""
+echo -e "  ${YELLOW}MetaMask (one-time setup):${NC}"
+echo -e "    Network → Add network → Chain ID 31337, RPC ${RPC}"
+echo -e "    Import account with key: ${PK}  (10,000 ETH)"
+echo -e "    Or fund your own address:  PLAYER_ADDR=0x... ./start-dev.sh"
+echo ""
+echo -e "  ${YELLOW}To resolve a bet (simulates VRF):${NC}"
+echo -e "    export DICE_FATE_CONTRACT=${ADDR}"
+echo -e "    ./scripts/dice-fate-cli.sh resolve-bet <betId> <randomNumber>"
+echo ""
+
 npm run dev

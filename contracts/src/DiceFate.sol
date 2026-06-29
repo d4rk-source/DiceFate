@@ -13,137 +13,183 @@ interface VRFCoordinatorV2Interface {
     ) external returns (uint256 requestId);
 }
 
+/**
+ * @title  DiceFate
+ * @notice Provably-fair on-chain dice betting backed by Chainlink VRF v2.
+ *
+ *         Players choose a roll-under target (2–100). If the random roll lands
+ *         below that target, they win. The payout multiplier scales inversely
+ *         with win probability so the house maintains an exact 5% edge at every
+ *         risk level — no fixed 2x cap, just pure math.
+ *
+ *         Production flow  : placeBet → VRF request → fulfillRandomWords (auto)
+ *         Local/test flow  : placeBet → rollDice (player-triggered, block entropy)
+ *
+ * @dev    Security notes:
+ *         - Checks-Effects-Interactions is applied throughout.
+ *         - A simple reentrancy guard protects all state-mutating externals.
+ *         - Custom errors are used instead of require strings for gas savings.
+ *         - This contract is for educational/demo purposes — audit before mainnet.
+ */
 contract DiceFate is VRFConsumerBaseV2 {
-    // VRF Variables
-    VRFCoordinatorV2Interface public vrfCoordinator;
-    bytes32 public keyHash;
-    uint64 public subId;
+    // ── Custom errors ────────────────────────────────────────────────────────
+    error InvalidTarget(uint8 target);
+    error BelowMinimumBet(uint256 sent, uint256 minimum);
+    error InsufficientHouseBalance(uint256 required, uint256 available);
+    error BetAlreadyResolved(uint256 betId);
+    error BetNotFound(uint256 betId);
+    error Unauthorized();
+    error WithdrawExceedsBalance(uint256 requested, uint256 available);
+    error TransferFailed();
+    error Reentrant();
+
+    // ── Chainlink VRF config ─────────────────────────────────────────────────
+    VRFCoordinatorV2Interface public immutable vrfCoordinator;
+    bytes32                   public immutable keyHash;
+    uint64                    public immutable subId;
+
     uint16 public constant REQUEST_CONFIRMATIONS = 3;
-    uint32 public constant CALLBACK_GAS_LIMIT = 100000;
-    uint32 public constant NUM_WORDS = 1;
+    uint32 public constant CALLBACK_GAS_LIMIT    = 100_000;
+    uint32 public constant NUM_WORDS             = 1;
 
-    // Bet Constants
-    uint256 public constant HOUSE_EDGE_BPS = 500; // 5% (in basis points)
-    uint256 public constant BASIS_POINTS = 10000;
-    uint256 public constant DICE_RANGE = 100; // 1-100
+    // ── Game parameters ──────────────────────────────────────────────────────
+    uint256 public constant HOUSE_EDGE_BPS = 500;        // 5 % in basis points
+    uint256 public constant BASIS_POINTS   = 10_000;
+    uint256 public constant DICE_RANGE     = 100;        // outcomes: 1–100 inclusive
+    uint256 public constant MIN_BET        = 0.001 ether;
 
-    // Bet struct
+    // ── Bet record ───────────────────────────────────────────────────────────
     struct Bet {
         address player;
         uint256 amount;
-        uint8 targetNumber; // roll under this number (1-100)
-        uint256 rollResult;
-        bool resolved;
-        bool won;
+        uint8   targetNumber; // win condition: roll < targetNumber
+        uint256 requestId;    // Chainlink VRF request id (0 for manual-resolved bets)
+        uint256 rollResult;   // populated after resolution; 0 while pending
+        bool    resolved;
+        bool    won;
     }
 
-    // State
-    mapping(uint256 => Bet) public bets;
-    mapping(address => uint256[]) public playerBets;
-    uint256 public nextBetId;
-    uint256 public contractBalance;
+    // ── State ────────────────────────────────────────────────────────────────
     address public owner;
+    uint256 public nextBetId;
 
-    // Events
+    // Tracks available house liquidity. Decremented when funds are reserved for
+    // a pending bet; reconciled on resolution. Invariant: contractBalance ≤ address(this).balance
+    uint256 public contractBalance;
+
+    mapping(uint256 => Bet)       public bets;
+    mapping(address => uint256[]) public playerBets;
+
+    // Links a Chainlink VRF request back to its bet so fulfillRandomWords knows what to resolve.
+    mapping(uint256 => uint256) public requestIdToBetId;
+
+    // ── Events ───────────────────────────────────────────────────────────────
     event BetPlaced(
         uint256 indexed betId,
         address indexed player,
         uint256 amount,
-        uint8 targetNumber,
+        uint8   targetNumber,
         uint256 requestId
     );
     event BetResolved(
         uint256 indexed betId,
         address indexed player,
         uint256 rollResult,
-        bool won,
+        bool    won,
         uint256 payout
     );
     event HouseDeposit(address indexed depositor, uint256 amount);
     event HouseWithdraw(address indexed withdrawer, uint256 amount);
+    event OwnershipTransferred(address indexed previousOwner, address indexed newOwner);
+
+    // ── Reentrancy guard ─────────────────────────────────────────────────────
+    bool private _locked;
+
+    modifier nonReentrant() {
+        if (_locked) revert Reentrant();
+        _locked = true;
+        _;
+        _locked = false;
+    }
 
     modifier onlyOwner() {
-        require(msg.sender == owner, "Only owner");
+        if (msg.sender != owner) revert Unauthorized();
         _;
     }
 
+    // ── Constructor ──────────────────────────────────────────────────────────
     constructor(
         address _vrfCoordinator,
         bytes32 _keyHash,
-        uint64 _subId
+        uint64  _subId
     ) VRFConsumerBaseV2(_vrfCoordinator) {
-        owner = msg.sender;
+        owner          = msg.sender;
         vrfCoordinator = VRFCoordinatorV2Interface(_vrfCoordinator);
-        keyHash = _keyHash;
-        subId = _subId;
-        nextBetId = 1;
+        keyHash        = _keyHash;
+        subId          = _subId;
+        nextBetId      = 1; // 0 is reserved as "not found" sentinel in requestIdToBetId
+    }
+
+    // ── Pure math helpers ────────────────────────────────────────────────────
+
+    /**
+     * @notice Fair-odds multiplier for a given target, expressed in basis points.
+     * @dev    multiplier = DICE_RANGE / (targetNumber - 1)
+     *         e.g. target 50 → 100/49 ≈ 2.04x (20408 bps)
+     *              target 10 → 100/9  ≈ 11.1x (111111 bps)
+     */
+    function calculatePayoutMultiplier(uint8 targetNumber) public pure returns (uint256) {
+        if (targetNumber < 2 || targetNumber > 100) revert InvalidTarget(targetNumber);
+        return (DICE_RANGE * BASIS_POINTS) / (targetNumber - 1);
     }
 
     /**
-     * @notice Calculate payout multiplier based on risk (target number)
-     * Higher risk (lower target) = higher multiplier
-     * Formula: multiplier = 100 / (targetNumber - 1)
-     * @param targetNumber The target number (2-100)
-     * @return Payout multiplier in basis points
+     * @notice Player payout on a win, after the 5% house edge is applied.
      */
-    function calculatePayoutMultiplier(
-        uint8 targetNumber
-    ) public pure returns (uint256) {
-        require(targetNumber >= 2 && targetNumber <= 100, "Invalid target");
-        // multiplier = 100 / (targetNumber - 1) (in basis points)
-        // Accounts for actual win probability: (targetNumber - 1) / 100
-        // e.g., target 50: 100/49 ≈ 2.04 = 20408 basis points ≈ 2.04x
-        // e.g., target 10: 100/9 ≈ 11.11 = 111111 basis points ≈ 11.11x
-        // e.g., target 99: 100/98 ≈ 1.02 = 10204 basis points ≈ 1.02x
-        return (100 * BASIS_POINTS) / (targetNumber - 1);
-    }
-
-    /**
-     * @notice Calculate final payout after house edge
-     * @param betAmount The original bet amount
-     * @param targetNumber The target number
-     * @return Final payout amount to player if they win
-     */
-    function calculateWinPayout(
-        uint256 betAmount,
-        uint8 targetNumber
-    ) public pure returns (uint256) {
+    function calculateWinPayout(uint256 betAmount, uint8 targetNumber) public pure returns (uint256) {
         uint256 multiplier = calculatePayoutMultiplier(targetNumber);
-        uint256 basePayout = (betAmount * multiplier) / BASIS_POINTS;
-        // Apply 5% house edge
-        return (basePayout * (BASIS_POINTS - HOUSE_EDGE_BPS)) / BASIS_POINTS;
+        uint256 gross      = (betAmount * multiplier) / BASIS_POINTS;
+        return (gross * (BASIS_POINTS - HOUSE_EDGE_BPS)) / BASIS_POINTS;
     }
 
     /**
-     * @notice Place a bet on a target number
-     * @param targetNumber Number to roll under (2-100)
-     * Lower target = higher risk & higher payout
-     * Higher target = lower risk & lower payout
+     * @notice Win probability in basis points. Winning outcomes: roll ∈ [1, targetNumber-1].
+     * @dev    P(win) = (targetNumber - 1) / DICE_RANGE
      */
-    function placeBet(uint8 targetNumber) external payable returns (uint256) {
-        require(msg.value > 0, "Bet must be greater than 0");
-        require(
-            targetNumber >= 2 && targetNumber <= 100,
-            "Target must be between 2-100"
-        );
+    function winProbabilityBps(uint8 targetNumber) external pure returns (uint256) {
+        if (targetNumber < 2 || targetNumber > 100) revert InvalidTarget(targetNumber);
+        return ((targetNumber - 1) * BASIS_POINTS) / DICE_RANGE;
+    }
 
-        // Calculate required payout if player wins
+    // ── View helpers ─────────────────────────────────────────────────────────
+
+    function getPlayerBets(address player) external view returns (uint256[] memory) {
+        return playerBets[player];
+    }
+
+    function getBet(uint256 betId) external view returns (Bet memory) {
+        return bets[betId];
+    }
+
+    // ── Core game ─────────────────────────────────────────────────────────────
+
+    /**
+     * @notice Place a bet and request randomness from Chainlink VRF.
+     * @param  targetNumber  Roll-under threshold (2–100). Lower = higher risk & payout.
+     * @return betId         Unique identifier for this bet.
+     */
+    function placeBet(uint8 targetNumber) external payable nonReentrant returns (uint256 betId) {
+        if (msg.value < MIN_BET) revert BelowMinimumBet(msg.value, MIN_BET);
+        if (targetNumber < 2 || targetNumber > 100) revert InvalidTarget(targetNumber);
+
         uint256 maxPayout = calculateWinPayout(msg.value, targetNumber);
+        if (contractBalance < maxPayout) revert InsufficientHouseBalance(maxPayout, contractBalance);
 
-        require(contractBalance >= maxPayout, "Insufficient house balance");
+        // Reserve house liquidity upfront; reconciled in _resolveBet.
+        contractBalance -= maxPayout;
 
-        uint256 betId = nextBetId++;
+        betId = nextBetId++;
 
-        Bet storage bet = bets[betId];
-        bet.player = msg.sender;
-        bet.amount = msg.value;
-        bet.targetNumber = targetNumber;
-        bet.resolved = false;
-
-        playerBets[msg.sender].push(betId);
-        contractBalance -= maxPayout; // Reserve funds for potential payout
-
-        // Request random number
         uint256 requestId = vrfCoordinator.requestRandomWords(
             keyHash,
             subId,
@@ -152,60 +198,72 @@ contract DiceFate is VRFConsumerBaseV2 {
             NUM_WORDS
         );
 
+        bets[betId] = Bet({
+            player:       msg.sender,
+            amount:       msg.value,
+            targetNumber: targetNumber,
+            requestId:    requestId,
+            rollResult:   0,
+            resolved:     false,
+            won:          false
+        });
+
+        playerBets[msg.sender].push(betId);
+        requestIdToBetId[requestId] = betId;
+
         emit BetPlaced(betId, msg.sender, msg.value, targetNumber, requestId);
-        return betId;
     }
 
     /**
-     * @notice Callback function called by VRF coordinator
+     * @notice Chainlink VRF callback — the production resolution path.
+     * @dev    Called by the VRF coordinator after randomness is generated.
+     *         Access is enforced by VRFConsumerBaseV2.rawFulfillRandomWords.
      */
     function fulfillRandomWords(
         uint256 requestId,
         uint256[] calldata randomWords
     ) internal override {
-        // Find the bet associated with this request
-        // In production, you'd map requestId to betId
-        // For this simplified version, we'll need to handle this differently
-        // This is called by the VRF coordinator
+        uint256 betId = requestIdToBetId[requestId];
+        // nextBetId starts at 1, so 0 means no bet is mapped to this request.
+        if (betId == 0) revert BetNotFound(requestId);
+        _resolveBet(betId, randomWords[0]);
     }
 
     /**
-     * @notice Simulate bet resolution (for testing/local anvil)
+     * @notice Owner-triggered resolution for testing the VRF callback path locally.
+     * @dev    Lets the owner supply an arbitrary seed, replicating what the VRF coordinator
+     *         would send. Remove or gate before any mainnet deployment.
      */
-    function resolveBet(
-        uint256 betId,
-        uint256 randomNumber
-    ) external onlyOwner {
-        Bet storage bet = bets[betId];
-        require(!bet.resolved, "Bet already resolved");
-
-        uint256 rollResult = (randomNumber % DICE_RANGE) + 1; // 1-100
-        bet.rollResult = rollResult;
-        bet.resolved = true;
-
-        uint256 payout = 0;
-        if (rollResult < bet.targetNumber) {
-            bet.won = true;
-            // Calculate variable payout based on risk (targetNumber)
-            payout = calculateWinPayout(bet.amount, bet.targetNumber);
-
-            // Transfer payout to player
-            (bool success, ) = payable(bet.player).call{value: payout}("");
-            require(success, "Transfer failed");
-
-            contractBalance += bet.amount; // Add bet to house
-        } else {
-            bet.won = false;
-            // Return reserved payout funds to house
-            uint256 reserved = calculateWinPayout(bet.amount, bet.targetNumber);
-            contractBalance += reserved;
-        }
-
-        emit BetResolved(betId, bet.player, rollResult, bet.won, payout);
+    function resolveBet(uint256 betId, uint256 randomNumber) external onlyOwner nonReentrant {
+        if (bets[betId].player == address(0)) revert BetNotFound(betId);
+        _resolveBet(betId, randomNumber);
     }
 
     /**
-     * @notice Deposit ETH to house balance
+     * @notice Player-triggered resolution using block entropy — for local dev play.
+     * @dev    NOT safe for production. block.prevrandao can be influenced by validators,
+     *         so any real deployment must use the VRF path (fulfillRandomWords) instead.
+     *         Entropy is mixed with bet-specific data so different bets get different rolls
+     *         even within the same block.
+     */
+    function rollDice(uint256 betId) external nonReentrant {
+        Bet storage bet = bets[betId];
+        if (bet.player == address(0)) revert BetNotFound(betId);
+        if (bet.player != msg.sender) revert Unauthorized();
+
+        uint256 seed = uint256(keccak256(abi.encodePacked(
+            block.prevrandao,
+            msg.sender,
+            betId,
+            block.timestamp
+        )));
+        _resolveBet(betId, seed);
+    }
+
+    // ── House management ──────────────────────────────────────────────────────
+
+    /**
+     * @notice Deposit ETH as house liquidity. Only callable by owner.
      */
     function depositHouse() external payable onlyOwner {
         contractBalance += msg.value;
@@ -213,36 +271,80 @@ contract DiceFate is VRFConsumerBaseV2 {
     }
 
     /**
-     * @notice Withdraw from house balance
+     * @notice Withdraw house liquidity. Cannot withdraw funds reserved for pending bets.
      */
-    function withdrawHouse(uint256 amount) external onlyOwner {
-        require(amount <= contractBalance, "Insufficient balance");
+    function withdrawHouse(uint256 amount) external onlyOwner nonReentrant {
+        if (amount > contractBalance) revert WithdrawExceedsBalance(amount, contractBalance);
         contractBalance -= amount;
-        (bool success, ) = payable(msg.sender).call{value: amount}("");
-        require(success, "Transfer failed");
+        _sendEth(msg.sender, amount);
         emit HouseWithdraw(msg.sender, amount);
     }
 
     /**
-     * @notice Get all bets for a player
+     * @notice Transfer contract ownership.
      */
-    function getPlayerBets(
-        address player
-    ) external view returns (uint256[] memory) {
-        return playerBets[player];
+    function transferOwnership(address newOwner) external onlyOwner {
+        if (newOwner == address(0)) revert Unauthorized();
+        emit OwnershipTransferred(owner, newOwner);
+        owner = newOwner;
     }
 
     /**
-     * @notice Get bet details
-     */
-    function getBet(uint256 betId) external view returns (Bet memory) {
-        return bets[betId];
-    }
-
-    /**
-     * @notice Receive function to accept ETH transfers
+     * @dev Accepts direct ETH transfers as anonymous house top-ups.
      */
     receive() external payable {
         contractBalance += msg.value;
+        emit HouseDeposit(msg.sender, msg.value);
+    }
+
+    // ── Internal ──────────────────────────────────────────────────────────────
+
+    /**
+     * @dev Shared resolution logic for both the VRF callback and the manual path.
+     *
+     *      Accounting recap:
+     *        placeBet    → contractBalance -= maxPayout  (reservation)
+     *                      contract receives +bet.amount (msg.value)
+     *        win         → payout sent to player; house offsets with bet.amount
+     *                      contractBalance += bet.amount
+     *        loss        → reservation returned + house claims bet
+     *                      contractBalance += reserved + bet.amount
+     *
+     *      Invariant maintained: contractBalance == address(this).balance
+     *      whenever no bets are pending.
+     *
+     *      CEI order: checks → effects (state) → interaction (ETH transfer).
+     */
+    function _resolveBet(uint256 betId, uint256 randomSeed) internal {
+        Bet storage bet = bets[betId];
+        if (bet.resolved) revert BetAlreadyResolved(betId);
+
+        uint256 rollResult = (randomSeed % DICE_RANGE) + 1; // maps to [1, 100]
+        uint256 reserved   = calculateWinPayout(bet.amount, bet.targetNumber);
+
+        // Effects — write all state before any external call.
+        bet.rollResult = rollResult;
+        bet.resolved   = true;
+
+        uint256 payout;
+
+        if (rollResult < bet.targetNumber) {
+            bet.won = true;
+            payout  = reserved;
+            // House receives the player's bet as partial offset against the payout.
+            contractBalance += bet.amount;
+            // Interaction — send after all state is committed.
+            _sendEth(bet.player, payout);
+        } else {
+            // House reclaims the reservation and keeps the player's bet.
+            contractBalance += reserved + bet.amount;
+        }
+
+        emit BetResolved(betId, bet.player, rollResult, bet.won, payout);
+    }
+
+    function _sendEth(address to, uint256 amount) internal {
+        (bool ok,) = payable(to).call{value: amount}("");
+        if (!ok) revert TransferFailed();
     }
 }

@@ -4,25 +4,32 @@ export const DICE_FATE_ABI = [
     inputs: [
       { name: "_vrfCoordinator", type: "address" },
       { name: "_keyHash", type: "bytes32" },
-      { name: "_subId", type: "uint64" }
-    ]
+      { name: "_subId", type: "uint64" },
+    ],
   },
   {
     type: "function",
     name: "placeBet",
     inputs: [{ name: "targetNumber", type: "uint8" }],
-    outputs: [{ name: "", type: "uint256" }],
-    stateMutability: "payable"
+    outputs: [{ name: "betId", type: "uint256" }],
+    stateMutability: "payable",
   },
   {
     type: "function",
     name: "resolveBet",
     inputs: [
       { name: "betId", type: "uint256" },
-      { name: "randomNumber", type: "uint256" }
+      { name: "randomNumber", type: "uint256" },
     ],
     outputs: [],
-    stateMutability: "nonpayable"
+    stateMutability: "nonpayable",
+  },
+  {
+    type: "function",
+    name: "rollDice",
+    inputs: [{ name: "betId", type: "uint256" }],
+    outputs: [],
+    stateMutability: "nonpayable",
   },
   {
     type: "function",
@@ -36,49 +43,88 @@ export const DICE_FATE_ABI = [
           { name: "player", type: "address" },
           { name: "amount", type: "uint256" },
           { name: "targetNumber", type: "uint8" },
+          { name: "requestId", type: "uint256" },
           { name: "rollResult", type: "uint256" },
           { name: "resolved", type: "bool" },
-          { name: "won", type: "bool" }
+          { name: "won", type: "bool" },
         ],
-        internalType: "struct DiceFate.Bet"
-      }
+        internalType: "struct DiceFate.Bet",
+      },
     ],
-    stateMutability: "view"
+    stateMutability: "view",
   },
   {
     type: "function",
     name: "getPlayerBets",
     inputs: [{ name: "player", type: "address" }],
     outputs: [{ name: "", type: "uint256[]" }],
-    stateMutability: "view"
+    stateMutability: "view",
+  },
+  {
+    type: "function",
+    name: "requestIdToBetId",
+    inputs: [{ name: "requestId", type: "uint256" }],
+    outputs: [{ name: "", type: "uint256" }],
+    stateMutability: "view",
+  },
+  {
+    type: "function",
+    name: "calculateWinPayout",
+    inputs: [
+      { name: "betAmount", type: "uint256" },
+      { name: "targetNumber", type: "uint8" },
+    ],
+    outputs: [{ name: "", type: "uint256" }],
+    stateMutability: "pure",
+  },
+  {
+    type: "function",
+    name: "winProbabilityBps",
+    inputs: [{ name: "targetNumber", type: "uint8" }],
+    outputs: [{ name: "", type: "uint256" }],
+    stateMutability: "pure",
   },
   {
     type: "function",
     name: "depositHouse",
     inputs: [],
     outputs: [],
-    stateMutability: "payable"
+    stateMutability: "payable",
   },
   {
     type: "function",
     name: "withdrawHouse",
     inputs: [{ name: "amount", type: "uint256" }],
     outputs: [],
-    stateMutability: "nonpayable"
+    stateMutability: "nonpayable",
+  },
+  {
+    type: "function",
+    name: "transferOwnership",
+    inputs: [{ name: "newOwner", type: "address" }],
+    outputs: [],
+    stateMutability: "nonpayable",
   },
   {
     type: "function",
     name: "contractBalance",
     inputs: [],
     outputs: [{ name: "", type: "uint256" }],
-    stateMutability: "view"
+    stateMutability: "view",
   },
   {
     type: "function",
     name: "owner",
     inputs: [],
     outputs: [{ name: "", type: "address" }],
-    stateMutability: "view"
+    stateMutability: "view",
+  },
+  {
+    type: "function",
+    name: "nextBetId",
+    inputs: [],
+    outputs: [{ name: "", type: "uint256" }],
+    stateMutability: "view",
   },
   {
     type: "event",
@@ -88,8 +134,8 @@ export const DICE_FATE_ABI = [
       { name: "player", type: "address", indexed: true },
       { name: "amount", type: "uint256", indexed: false },
       { name: "targetNumber", type: "uint8", indexed: false },
-      { name: "requestId", type: "uint256", indexed: false }
-    ]
+      { name: "requestId", type: "uint256", indexed: false },
+    ],
   },
   {
     type: "event",
@@ -99,7 +145,31 @@ export const DICE_FATE_ABI = [
       { name: "player", type: "address", indexed: true },
       { name: "rollResult", type: "uint256", indexed: false },
       { name: "won", type: "bool", indexed: false },
-      { name: "payout", type: "uint256", indexed: false }
-    ]
-  }
-];
+      { name: "payout", type: "uint256", indexed: false },
+    ],
+  },
+  {
+    type: "event",
+    name: "HouseDeposit",
+    inputs: [
+      { name: "depositor", type: "address", indexed: true },
+      { name: "amount", type: "uint256", indexed: false },
+    ],
+  },
+  {
+    type: "event",
+    name: "HouseWithdraw",
+    inputs: [
+      { name: "withdrawer", type: "address", indexed: true },
+      { name: "amount", type: "uint256", indexed: false },
+    ],
+  },
+  {
+    type: "event",
+    name: "OwnershipTransferred",
+    inputs: [
+      { name: "previousOwner", type: "address", indexed: true },
+      { name: "newOwner", type: "address", indexed: true },
+    ],
+  },
+] as const;

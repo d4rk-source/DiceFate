@@ -1,73 +1,55 @@
 #!/bin/bash
+# DiceFate one-time dependency installer.
+# Run this once after cloning. Then use ./start-dev.sh to boot the app.
 
-# DiceFate Local Deployment Script
-# This script automates setting up Anvil and deploying the contract
+set -euo pipefail
 
-set -e
+GREEN='\033[0;32m'; BLUE='\033[0;34m'; RED='\033[0;31m'; NC='\033[0m'
+ok()  { echo -e "  ${GREEN}✓${NC}  $*"; }
+info(){ echo -e "  ${BLUE}→${NC}  $*"; }
+die() { echo -e "\n  ${RED}✗  $*${NC}\n" >&2; exit 1; }
 
-echo "🎲 DiceFate Deployment Script"
-echo "=============================="
-
-# Check for required tools
-echo "Checking for required tools..."
-command -v foundryup >/dev/null 2>&1 || { echo "❌ Foundry not installed. Run: curl -L https://foundry.paradigm.xyz | bash"; exit 1; }
-command -v node >/dev/null 2>&1 || { echo "❌ Node.js not installed"; exit 1; }
-
-echo "✅ All tools found"
-
-# Setup contracts
 echo ""
-echo "Setting up Foundry project..."
+echo -e "  ${BLUE}DiceFate${NC} — one-time setup"
+echo ""
+
+# ── Dependency check ──────────────────────────────────────────────────────────
+for cmd in forge node npm git; do
+    command -v "$cmd" >/dev/null 2>&1 \
+        || die "'$cmd' not found. See README for install instructions."
+done
+ok "dependencies OK (forge, node, npm, git)"
+
+# ── Forge libraries ───────────────────────────────────────────────────────────
+info "Initialising git submodules (forge-std, chainlink-brownie-contracts) ..."
+git submodule update --init --recursive
+ok "Submodules initialised"
+
+# If submodules came up empty for some reason, install via forge.
+if [ ! -f "contracts/lib/forge-std/src/Test.sol" ]; then
+    info "forge-std not found via submodule — installing via forge ..."
+    cd contracts && forge install foundry-rs/forge-std --no-commit && cd ..
+fi
+
+# ── Build + test ──────────────────────────────────────────────────────────────
+info "Building contracts ..."
 cd contracts
-[ ! -d "lib/forge-std" ] && forge install foundry-rs/forge-std
-[ ! -d "lib/chainlink" ] && forge install smartcontractkit/chainlink-brownie-contracts
-
-echo "✅ Foundry dependencies installed"
-
-# Build
-echo ""
-echo "Building contracts..."
 forge build
-echo "✅ Build complete"
+ok "Contracts built"
 
-# Run tests
-echo ""
-echo "Running tests..."
-forge test -v
-echo "✅ Tests passed"
-
+info "Running test suite ..."
+forge test
+ok "All tests passed"
 cd ..
 
-# Setup frontend
-echo ""
-echo "Setting up frontend..."
-cd frontend
-npm install
-echo "✅ Frontend dependencies installed"
+# ── Frontend ──────────────────────────────────────────────────────────────────
+info "Installing frontend dependencies ..."
+cd frontend && npm install && cd ..
+ok "Frontend dependencies installed"
 
-cd ..
-
-# Instructions
+# ── Done ──────────────────────────────────────────────────────────────────────
 echo ""
-echo "=============================="
-echo "✅ Setup Complete!"
-echo "=============================="
+echo -e "  ${GREEN}Setup complete.${NC}"
 echo ""
-echo "Next steps:"
-echo ""
-echo "1. Start Anvil in Terminal 1:"
-echo "   make anvil"
-echo ""
-echo "2. Deploy contract in Terminal 2:"
-echo "   cd contracts"
-echo "   export PRIVATE_KEY=0xac0974bec39a17e36ba4a6b4d238ff944bacb476cad3623e5f21a2f9f5f8e5e8"
-echo "   make deploy-local"
-echo ""
-echo "3. Update contract address in frontend/lib/config.ts"
-echo ""
-echo "4. Start frontend in Terminal 3:"
-echo "   cd frontend"
-echo "   npm run dev"
-echo ""
-echo "5. Visit http://localhost:3000"
+echo -e "  Run ${BLUE}./start-dev.sh${NC} to boot Anvil, deploy, and launch the app."
 echo ""

@@ -164,7 +164,7 @@ The scripts use these environment variables:
 
 ```bash
 # Private key for deployment (default: first Anvil account)
-export PRIVATE_KEY=0xac0974bec39a17e36ba4a6b4d238ff944bacb476cad3623e5f21a2f9f5f8e5e8
+export PRIVATE_KEY=0xac0974bec39a17e36ba4a6b4d238ff944bacb478cbed5efcae784d7bf4f2ff80
 
 # RPC URL (default: http://127.0.0.1:8545)
 export RPC_URL=http://127.0.0.1:8545
